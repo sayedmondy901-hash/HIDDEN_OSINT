@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hidden OSINT - Subdomain & Threat Intelligence</title>
+    <style>
+        * { box-sizing: border-box; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { background-color: #0d1117; color: #c9d1d9; margin: 0; padding: 30px; }
+        .container { max-width: 950px; margin: 0 auto; background: #161b22; padding: 30px; border-radius: 12px; border: 1px solid #30363d; box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
+        h1 { color: #58a6ff; margin-top: 0; text-align: center; letter-spacing: 1px; }
+        p.subtitle { text-align: center; color: #8b949e; margin-bottom: 25px; }
+        .input-group { display: flex; gap: 10px; margin-bottom: 20px; }
+        input[type="text"] { flex: 1; padding: 14px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #fff; font-size: 16px; outline: none; }
+        input[type="text"]:focus { border-color: #58a6ff; }
+        button { padding: 12px 24px; background: #238636; color: #fff; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        button:hover { background: #2ea043; }
+        button:disabled { background: #30363d; cursor: not-allowed; }
+        .btn-ai { background: #8957e5; }
+        .btn-ai:hover { background: #a371f7; }
+        .btn-export { background: #1f6feb; }
+        .stats { display: none; justify-content: space-between; align-items: center; background: #0d1117; padding: 15px 20px; border-radius: 8px; border: 1px solid #30363d; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
+        .badge { background: #1f6feb; color: #fff; padding: 4px 10px; border-radius: 20px; font-weight: bold; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .box { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; height: 380px; overflow-y: auto; padding: 15px; font-family: monospace; font-size: 14px; display: none; }
+        .box h3 { margin-top: 0; color: #58a6ff; border-bottom: 1px solid #30363d; padding-bottom: 8px; position: sticky; top: 0; background: #0d1117; }
+        .sub-item { padding: 6px 4px; border-bottom: 1px solid #21262d; color: #3fb950; }
+        .loader { display: none; text-align: center; margin: 15px 0; color: #58a6ff; font-weight: bold; }
+        .error { color: #f85149; background: rgba(248,81,73,0.1); border: 1px solid #f85149; padding: 12px; border-radius: 6px; margin-bottom: 20px; display: none; }
+        .ai-text { white-space: pre-wrap; line-height: 1.6; color: #e6edf3; font-family: 'Segoe UI', sans-serif; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🕵️‍♂️ Hidden OSINT</h1>
+    <p class="subtitle">Stealth Subdomain Enumeration & Local AI Threat Analyzer</p>
+
+    <div class="input-group">
+        <input type="text" id="domainInput" placeholder="Enter target domain (e.g., example.com)" />
+        <button id="scanBtn" onclick="startScan()">🔍 Start Recon</button>
+    </div>
+
+    <div id="errorBox" class="error"></div>
+    <div id="loader" class="loader">⏳ Hidden OSINT is querying passive sources concurrently... Please wait.</div>
+
+    <div id="statsBox" class="stats">
+        <div>Task ID: <small id="taskId" style="color:#8b949e;">-</small></div>
+        <div>Discovered Subdomains: <span id="totalCount" class="badge">0</span></div>
+        <div style="display:flex; gap:10px;">
+            <button id="aiBtn" class="btn-ai" onclick="analyzeWithAI()">🤖 Analyze with Ollama AI</button>
+            <button class="btn-export" onclick="exportResults()">⬇️ Export JSON</button>
+        </div>
+    </div>
+
+    <div class="grid">
+        <div id="resultsBox" class="box">
+            <h3>🌐 Discovered Subdomains</h3>
+            <div id="subdomainsList"></div>
+        </div>
+        <div id="aiBox" class="box">
+            <h3>🧠 AI Security Analysis</h3>
+            <div id="aiOutput" class="ai-text">Click "Analyze with Ollama AI" to classify discovered subdomains locally...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentData = null;
+
+    async function startScan() {
+        const domain = document.getElementById('domainInput').value.trim();
+        const errorBox = document.getElementById('errorBox');
+        const loader = document.getElementById('loader');
+        const statsBox = document.getElementById('statsBox');
+        const resultsBox = document.getElementById('resultsBox');
+        const aiBox = document.getElementById('aiBox');
+        const subdomainsList = document.getElementById('subdomainsList');
+        const scanBtn = document.getElementById('scanBtn');
+
+        errorBox.style.display = 'none';
+        if (!domain) {
+            errorBox.innerText = "Please enter a valid domain name!";
+            errorBox.style.display = 'block';
+            return;
+        }
+
+        scanBtn.disabled = true;
+        loader.style.display = 'block';
+        statsBox.style.display = 'none';
+        resultsBox.style.display = 'none';
+        aiBox.style.display = 'none';
+        subdomainsList.innerHTML = '';
+
+        try {
+            // المسار المضبوط المتوافق مع main.py
+            const response = await fetch('/api/v1/scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ target_domain: domain })
+            });
+
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || 'Scan failed');
+
+            currentData = data;
+            document.getElementById('taskId').innerText = data.task_id || 'N/A';
+            document.getElementById('totalCount').innerText = data.total_found !== undefined ? data.total_found : (data.subdomains ? data.subdomains.length : 0);
+            
+            statsBox.style.display = 'flex';
+            resultsBox.style.display = 'block';
+            aiBox.style.display = 'block';
+
+            if (data.subdomains && data.subdomains.length > 0) {
+                data.subdomains.forEach(sub => {
+                    const div = document.createElement('div');
+                    div.className = 'sub-item';
+                    div.innerText = sub;
+                    subdomainsList.appendChild(div);
+                });
+            } else {
+                subdomainsList.innerHTML = '<div style="color:#8b949e;">No subdomains found or engine returned message only: ' + (data.message || '') + '</div>';
+            }
+        } catch (err) {
+            errorBox.innerText = err.message;
+            errorBox.style.display = 'block';
+        } finally {
+            loader.style.display = 'none';
+            scanBtn.disabled = false;
+        }
+    }
+
+    async function analyzeWithAI() {
+        if (!currentData || !currentData.subdomains || currentData.subdomains.length === 0) return;
+        const aiOutput = document.getElementById('aiOutput');
+        const aiBtn = document.getElementById('aiBtn');
+        
+        aiBtn.disabled = true;
+        aiOutput.innerText = "⏳ Sending subdomains to local Ollama model for security classification...";
+
+        try {
+            const sample = currentData.subdomains.slice(0, 50).join("\n");
+            const response = await fetch('/api/v1/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ raw_data: sample })
+            });
+
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || 'AI Analysis failed');
+            aiOutput.innerText = data.analysis;
+        } catch (err) {
+            aiOutput.innerText = "❌ " + err.message;
+        } finally {
+            aiBtn.disabled = false;
+        }
+    }
+
+    function exportResults() {
+        if (!currentData) return;
+        const blob = new Blob([JSON.stringify(currentData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Hidden_OSINT_${currentData.target}.json`;
+        a.click();
+    }
+</script>
+
+</body>
+</html>
