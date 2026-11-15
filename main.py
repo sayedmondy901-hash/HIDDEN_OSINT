@@ -12,7 +12,12 @@ OLLAMA_URL = os.getenv("OLLAMA_API_URL", "http://localhost:11434/api/generate")
 
 # استدعاء دوال الداتا بيز + محرك الـ OSINT المباشر كضمان 100%
 from osint_engine import AdvancedOSINTEngine
-
+try:
+    from osint_data_layer.app import create_task, get_task_results_dict
+except Exception:
+    create_task = None
+    get_task_results_dict = None
+    
 app = FastAPI(title="Hidden OSINT - API Gateway")
 
 app.add_middleware(
